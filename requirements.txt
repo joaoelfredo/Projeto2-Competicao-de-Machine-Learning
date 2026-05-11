@@ -2,3 +2,10 @@ pandas
 numpy
 scikit-learn
 joblib
+nbformat
+ipykernel 
+notebook
+plotly
+matplotlib
+seaborn
+scipy
