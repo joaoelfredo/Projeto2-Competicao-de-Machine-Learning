@@ -27,7 +27,6 @@ def prever_precos(caminho_arquivo_teste):
 
     # ------------------------------------------------------------------ #
     # 2. REMOÇÃO DE COLUNAS DE BAIXO VALOR PREDITIVO
-    # Mesmas colunas removidas no notebook de tratamento
     # ------------------------------------------------------------------ #
     cols_to_drop = [
         'PoolArea', 'PoolQC', 'MiscFeature', 'MiscVal',
@@ -38,7 +37,6 @@ def prever_precos(caminho_arquivo_teste):
 
     # ------------------------------------------------------------------ #
     # 3. TRATAR NULOS COM SIGNIFICADO DE NEGÓCIO
-    # NaN = ausência da feature, não dado perdido
     # ------------------------------------------------------------------ #
     cols_none = [
         'Alley', 'Fence', 'FireplaceQu',
@@ -61,25 +59,23 @@ def prever_precos(caminho_arquivo_teste):
     # ------------------------------------------------------------------ #
     # 4. TRATAR NULOS GENUINAMENTE FALTANTES
     # ------------------------------------------------------------------ #
-    # LotFrontage: mediana do bairro
     if 'LotFrontage' in df.columns:
         df['LotFrontage'] = df.groupby('Neighborhood')['LotFrontage'].transform(
             lambda x: x.fillna(x.median())
         )
-        # Caso algum bairro inteiro seja nulo, usa mediana global
         df['LotFrontage'] = df['LotFrontage'].fillna(df['LotFrontage'].median())
 
     if 'MasVnrType' in df.columns:
         df['MasVnrType'] = df['MasVnrType'].fillna('None')
 
     if 'Electrical' in df.columns:
-        df['Electrical'] = df['Electrical'].fillna('SBrkr')  # moda do treino
+        df['Electrical'] = df['Electrical'].fillna('SBrkr')
 
     if 'Functional' in df.columns:
-        df['Functional'] = df['Functional'].fillna('Typ')    # moda do treino
+        df['Functional'] = df['Functional'].fillna('Typ')
 
     # ------------------------------------------------------------------ #
-    # 5. CORRIGIR TIPOS — códigos numéricos que são categorias
+    # 5. CORRIGIR TIPOS
     # ------------------------------------------------------------------ #
     for col in ['MSSubClass', 'MoSold', 'YrSold']:
         if col in df.columns:
@@ -100,10 +96,10 @@ def prever_precos(caminho_arquivo_teste):
                                + df['ScreenPorch'])
     df['has_fireplace']     = (df['Fireplaces'] > 0).astype(int)
     df['has_garage']        = (df['GarageArea'] > 0).astype(int)
-    df['has_pool']          = 0  # coluna removida, todas as casas valem 0
+    df['has_pool']          = 0
 
     # ------------------------------------------------------------------ #
-    # 7. ENCODING ORDINAL — variáveis com hierarquia clara
+    # 7. ENCODING ORDINAL
     # ------------------------------------------------------------------ #
     qual_map = {'None': 0, 'Po': 1, 'Fa': 2, 'TA': 3, 'Gd': 4, 'Ex': 5}
     qual_cols = [
@@ -144,7 +140,7 @@ def prever_precos(caminho_arquivo_teste):
         df['CentralAir'] = df['CentralAir'].map({'N': 0, 'Y': 1}).fillna(0)
 
     # ------------------------------------------------------------------ #
-    # 8. ONE-HOT ENCODING — variáveis nominais sem hierarquia
+    # 8. ONE-HOT ENCODING
     # ------------------------------------------------------------------ #
     onehot_cols = [
         'MSSubClass', 'MSZoning', 'Alley', 'LotShape', 'LandContour',
@@ -159,7 +155,6 @@ def prever_precos(caminho_arquivo_teste):
 
     # ------------------------------------------------------------------ #
     # 9. LOG1P NAS FEATURES ASSIMÉTRICAS
-    # Mesmas colunas transformadas no treino (skew > 0.75)
     # ------------------------------------------------------------------ #
     skewed_cols = [
         'LotFrontage', 'LotArea', 'MasVnrArea', 'BsmtFinSF1', 'BsmtFinSF2',
@@ -174,41 +169,48 @@ def prever_precos(caminho_arquivo_teste):
     # ------------------------------------------------------------------ #
     # 10. CARREGAMENTO DO MODELO
     # ------------------------------------------------------------------ #
-    caminho_modelo = 'modelo_baseline.joblib'
+    caminho_modelo = 'models/modelo_final.pkl'
     if not os.path.exists(caminho_modelo):
         raise FileNotFoundError(
-            f"Modelo '{caminho_modelo}' não encontrado. "
-            "Certifique-se de que o arquivo está na raiz do repositório."
+            f"Modelo '{caminho_modelo}' não encontrado na raiz do projeto."
         )
     modelo = joblib.load(caminho_modelo)
 
     # ------------------------------------------------------------------ #
     # 11. ALINHAMENTO DE COLUNAS
-    # Garante que o teste tenha exatamente as colunas que o modelo espera
+    # Garante exatamente as mesmas colunas que o modelo viu no treino.
+    # Colunas a mais são removidas; colunas faltando viram 0.
     # ------------------------------------------------------------------ #
-    if hasattr(modelo, 'feature_names_in_'):
+    colunas_treino_path = 'colunas_treino.joblib'
+
+    if os.path.exists(colunas_treino_path):
+        # Usa a lista de colunas salva no treinamento — mais confiável
+        colunas_treino = joblib.load(colunas_treino_path)
+        df = df.reindex(columns=colunas_treino, fill_value=0)
+    elif hasattr(modelo, 'feature_names_in_'):
+        # Fallback: usa as colunas gravadas no próprio modelo
         df = df.reindex(columns=modelo.feature_names_in_, fill_value=0)
+    else:
+        # Último recurso: mantém o que tiver
+        pass
 
     # ------------------------------------------------------------------ #
-    # 12. PREDIÇÃO E PÓS-PROCESSAMENTO
-    # Se o modelo foi treinado com log1p(SalePrice), reverter com expm1
-    # Se usou TransformedTargetRegressor, a reversão é automática
+    # 12. PREDIÇÃO
+    # O modelo foi treinado com log1p(SalePrice), então revertemos
+    # com expm1 para retornar os preços em dólares.
     # ------------------------------------------------------------------ #
     predicoes = modelo.predict(df)
-
-    # Reverte log1p caso o modelo não use TransformedTargetRegressor
-    # Comente esta linha se o seu modelo já retorna valores em dólares
     predicoes = np.expm1(predicoes)
 
-    # Garante que não haja valores negativos
+    # Garante que não há infinitos, NaN ou negativos
+    predicoes = np.where(np.isfinite(predicoes), predicoes, 0)
     predicoes_finais = np.clip(predicoes, a_min=0, a_max=None)
 
     return predicoes_finais
 
 
 # ------------------------------------------------------------------ #
-# TESTE LOCAL
-# Execute: python pipeline.py
+# TESTE LOCAL — execute: python pipeline.py
 # ------------------------------------------------------------------ #
 if __name__ == "__main__":
     arquivo_teste_exemplo = 'teste_publico.csv'
@@ -223,9 +225,10 @@ if __name__ == "__main__":
 
             print("\n✅ Sucesso! O pipeline rodou corretamente.")
             print("-" * 40)
-            print(f"Total de predições: {len(resultados)}")
-            print(f"Primeiras 5 predições: {resultados[:5]}")
+            print(f"Total de predições : {len(resultados)}")
+            print(f"Primeiras 5        : {resultados[:5]}")
             print(f"Mín: ${resultados.min():,.0f} | Máx: ${resultados.max():,.0f}")
+            print(f"Infinitos/NaN      : {np.sum(~np.isfinite(resultados))}")
             print("-" * 40)
 
             df_val = pd.read_csv(arquivo_teste_exemplo)
