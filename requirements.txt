@@ -2,11 +2,8 @@ pandas
 numpy
 scikit-learn
 joblib
-nbformat
-ipykernel 
-notebook
-plotly
+scipy
 matplotlib
 seaborn
-scipy
-scikit-learn
+plotly
+xgboost

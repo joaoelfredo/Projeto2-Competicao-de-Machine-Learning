@@ -168,11 +168,14 @@ def prever_precos(caminho_arquivo_teste):
 
     # ------------------------------------------------------------------ #
     # 10. CARREGAMENTO DO MODELO
+    # Usa o diretório do próprio pipeline.py como âncora para que o
+    # script funcione independentemente de onde é invocado.
     # ------------------------------------------------------------------ #
-    caminho_modelo = 'models/modelo_final.pkl'
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    caminho_modelo = os.path.join(base_dir, 'models', 'modelo_final.pkl')
     if not os.path.exists(caminho_modelo):
         raise FileNotFoundError(
-            f"Modelo '{caminho_modelo}' não encontrado na raiz do projeto."
+            f"Modelo '{caminho_modelo}' não encontrado."
         )
     modelo = joblib.load(caminho_modelo)
 
@@ -181,7 +184,7 @@ def prever_precos(caminho_arquivo_teste):
     # Garante exatamente as mesmas colunas que o modelo viu no treino.
     # Colunas a mais são removidas; colunas faltando viram 0.
     # ------------------------------------------------------------------ #
-    colunas_treino_path = 'colunas_treino.joblib'
+    colunas_treino_path = os.path.join(base_dir, 'colunas_treino.joblib')
 
     if os.path.exists(colunas_treino_path):
         # Usa a lista de colunas salva no treinamento — mais confiável
@@ -196,15 +199,24 @@ def prever_precos(caminho_arquivo_teste):
 
     # ------------------------------------------------------------------ #
     # 12. PREDIÇÃO
-    # O modelo foi treinado com log1p(SalePrice), então revertemos
-    # com expm1 para retornar os preços em dólares.
+    # O modelo foi treinado com log1p(SalePrice) (confirmado pelo MSE de
+    # treino ~0.002, que só faz sentido em escala logarítmica).
+    # Revertemos com expm1 para devolver preços em dólares.
     # ------------------------------------------------------------------ #
-    predicoes = modelo.predict(df)
-    predicoes = np.expm1(predicoes)
+    predicoes_log = modelo.predict(df)
+    predicoes = np.expm1(predicoes_log)
 
-    # Garante que não há infinitos, NaN ou negativos
-    predicoes = np.where(np.isfinite(predicoes), predicoes, 0)
-    predicoes_finais = np.clip(predicoes, a_min=0, a_max=None)
+    # Garante apenas valores finitos, não-negativos e na escala de dólares.
+    # Se algum valor for inválido (NaN/inf), substitui pela mediana das
+    # predições válidas — evita retornar casas de $0.
+    mascara_validos = np.isfinite(predicoes) & (predicoes > 0)
+    if mascara_validos.any():
+        mediana_valida = float(np.median(predicoes[mascara_validos]))
+    else:
+        mediana_valida = 150_000.0  # fallback absoluto
+
+    predicoes = np.where(mascara_validos, predicoes, mediana_valida)
+    predicoes_finais = np.clip(predicoes, a_min=1_000.0, a_max=None)
 
     return predicoes_finais
 
