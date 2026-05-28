@@ -225,7 +225,7 @@ def prever_precos(caminho_arquivo_teste):
 # TESTE LOCAL — execute: python pipeline.py
 # ------------------------------------------------------------------ #
 if __name__ == "__main__":
-    arquivo_teste_exemplo = 'teste_publico.csv'
+    arquivo_teste_exemplo = 'treino.csv'
 
     print("--- Executando Validação Local do Pipeline ---")
 
