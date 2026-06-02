@@ -3,7 +3,6 @@ numpy
 scikit-learn
 joblib
 scipy
-matplotlib
 seaborn
 plotly
 xgboost
