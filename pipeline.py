@@ -189,7 +189,22 @@ def prever_precos(caminho_arquivo_teste):
     if os.path.exists(colunas_treino_path):
         # Usa a lista de colunas salva no treinamento — mais confiável
         colunas_treino = joblib.load(colunas_treino_path)
-        df = df.reindex(columns=colunas_treino, fill_value=0)
+
+        # Guarda defensiva: o arquivo pode conter um modelo (ex.: modelo_baseline.joblib)
+        # no lugar da lista de colunas — situação que ocorre quando o corretor
+        # não encontra colunas_treino.joblib e usa outro .joblib como substituto.
+        if not isinstance(colunas_treino, (list, np.ndarray)) or (
+            hasattr(colunas_treino, '__len__') and len(colunas_treino) > 0
+            and not isinstance(colunas_treino[0], str)
+        ):
+            # Objeto carregado não é uma lista de nomes de coluna — usar fallback
+            colunas_treino = None
+
+        if colunas_treino is not None:
+            df = df.reindex(columns=list(colunas_treino), fill_value=0)
+        elif hasattr(modelo, 'feature_names_in_'):
+            df = df.reindex(columns=modelo.feature_names_in_, fill_value=0)
+        # else: mantém o que tiver
     elif hasattr(modelo, 'feature_names_in_'):
         # Fallback: usa as colunas gravadas no próprio modelo
         df = df.reindex(columns=modelo.feature_names_in_, fill_value=0)
